@@ -717,7 +717,7 @@ public final class ReactiveNeo4jTemplate implements
 									.map(TupleOfLongsHolder::get)
 									.expand(iterateAndMapNextLevel(relationshipDescription, queryFragments, rootClass, PropertyPathWalkStep.empty()));
 						})
-						.then(Mono.fromSupplier(() -> new NodesAndRelationshipsByIdStatementProvider(rootNodeIds, processedRelationshipIds, processedNodeIds, queryFragments)));
+						.then(Mono.fromSupplier(() -> new NodesAndRelationshipsByIdStatementProvider(null, rootNodeIds, processedRelationshipIds, processedNodeIds, queryFragments)));
 			})
 			.contextWrite(ctx -> ctx
 					.put("rootNodes", ConcurrentHashMap.newKeySet())

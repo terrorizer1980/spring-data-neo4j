@@ -896,6 +896,7 @@ class RepositoryIT {
 
 			Pet pet1 = pets.get(pets.indexOf(comparisonPet1));
 			Pet pet2 = pets.get(pets.indexOf(comparisonPet2));
+			System.out.println(pet1.getId());
 			Hobby petHobby = pet1.getHobbies().iterator().next();
 			assertThat(petHobby.getId()).isEqualTo(hobbyNode2Id);
 			assertThat(petHobby.getName()).isEqualTo("sleeping");

@@ -213,6 +213,7 @@ class AdvancedMappingIT {
 	void cyclicMappingShouldReturnResultForFindAll(@Autowired MovieRepository repository) {
 		List<Movie> movies = repository.findAll();
 		assertThat(movies).hasSize(38);
+		assertThat(movies).allMatch(movie -> !(movie.getTitle().isEmpty() || movie.getActors().isEmpty()));
 	}
 
 	@Test // GH-2117

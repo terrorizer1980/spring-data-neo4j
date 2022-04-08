@@ -33,10 +33,14 @@ import java.util.stream.StreamSupport;
 
 import org.apiguardian.api.API;
 import org.neo4j.cypherdsl.core.Cypher;
+import org.neo4j.cypherdsl.core.Expression;
 import org.neo4j.cypherdsl.core.Functions;
+import org.neo4j.cypherdsl.core.MapExpression;
 import org.neo4j.cypherdsl.core.Node;
+import org.neo4j.cypherdsl.core.Property;
 import org.neo4j.cypherdsl.core.Relationship;
 import org.neo4j.cypherdsl.core.Statement;
+import org.neo4j.cypherdsl.core.SymbolicName;
 import org.neo4j.driver.types.Entity;
 import org.neo4j.driver.types.MapAccessor;
 import org.neo4j.driver.types.TypeSystem;
@@ -121,7 +125,7 @@ public final class TemplateSupport {
 	}
 
 	static PropertyFilter computeIncludePropertyPredicate(Map<PropertyPath, Boolean> includedProperties,
-														  NodeDescription<?> nodeDescription) {
+			NodeDescription<?> nodeDescription) {
 
 		return PropertyFilter.from(includedProperties, nodeDescription);
 	}
@@ -164,16 +168,21 @@ public final class TemplateSupport {
 		private final static String RELATED_NODE_IDS = "relatedNodeIds";
 
 		final static NodesAndRelationshipsByIdStatementProvider EMPTY =
-				new NodesAndRelationshipsByIdStatementProvider(Collections.emptySet(), Collections.emptySet(), Collections.emptySet(), new QueryFragments());
+				new NodesAndRelationshipsByIdStatementProvider(null, Collections.emptySet(), Collections.emptySet(), Collections.emptySet(), new QueryFragments());
 
-		private final Map<String, Collection<Long>> parameters = new HashMap<>(3);
+		private final Map<String, Object> parameters = new HashMap<>(3);
 		private final QueryFragments queryFragments;
 
-		NodesAndRelationshipsByIdStatementProvider(Collection<Long> rootNodeIds, Collection<Long> relationshipsIds, Collection<Long> relatedNodeIds, QueryFragments queryFragments) {
+		NodesAndRelationshipsByIdStatementProvider(Map<String, Map<String, Set<Long>>> f, Collection<Long> rootNodeIds, Collection<Long> relationshipsIds, Collection<Long> relatedNodeIds, QueryFragments queryFragments) {
 
 			this.parameters.put(ROOT_NODE_IDS, rootNodeIds);
-			this.parameters.put(RELATIONSHIP_IDS, relationshipsIds);
-			this.parameters.put(RELATED_NODE_IDS, relatedNodeIds);
+			if(f!= null) {
+				this.parameters.put("x", f);
+			} else {
+				this.parameters.put(RELATIONSHIP_IDS, relationshipsIds);
+				this.parameters.put(RELATED_NODE_IDS, relatedNodeIds);
+			}
+
 			this.queryFragments = queryFragments;
 		}
 
@@ -182,40 +191,68 @@ public final class TemplateSupport {
 		}
 
 		boolean hasRootNodeIds() {
-			return parameters.get(ROOT_NODE_IDS).isEmpty();
+			return ((Collection<Long>)parameters.get(ROOT_NODE_IDS)).isEmpty();
 		}
 
 		Statement toStatement(NodeDescription<?> nodeDescription) {
 
-			String rootNodeIds = "rootNodeIds";
-			String relationshipIds = "relationshipIds";
-			String relatedNodeIds = "relatedNodeIds";
-			Node rootNodes = Cypher.anyNode(rootNodeIds);
-			Node relatedNodes = Cypher.anyNode(relatedNodeIds);
-			Relationship relationships = Cypher.anyNode().relationshipBetween(Cypher.anyNode()).named(relationshipIds);
-			return Cypher.match(rootNodes)
-					.where(Functions.id(rootNodes).in(Cypher.parameter(rootNodeIds)))
-					.with(Functions.collect(rootNodes).as(Constants.NAME_OF_ROOT_NODE))
-					.optionalMatch(relationships)
-					.where(Functions.id(relationships).in(Cypher.parameter(relationshipIds)))
-					.with(Constants.NAME_OF_ROOT_NODE, Functions.collectDistinct(relationships).as(Constants.NAME_OF_SYNTHESIZED_RELATIONS).asExpression())
-					.optionalMatch(relatedNodes)
-					.where(Functions.id(relatedNodes).in(Cypher.parameter(relatedNodeIds)))
+
+			SymbolicName rootNodes = Cypher.name("rootNodes");
+			Relationship relationships = Cypher.anyNode().relationshipBetween(Cypher.anyNode()).named("relationships");
+
+			SymbolicName r = Cypher.name("i");
+			SymbolicName sR = Cypher.name(Constants.NAME_OF_SYNTHESIZED_RELATIONS);
+
+			Property relatedThings = Cypher.property(Cypher.parameter("x"), Cypher.raw("'x' + toString(id($E))", rootNodes));
+			Expression relatedRelations = Cypher
+					.listWith(r)
+					.in(Functions.collectDistinct(relationships))
+					.where(Cypher.raw("id($E)", r).in(Cypher.property(relatedThings, "r")))
+					.returning()
+					.as(sR);
+			Expression relatedStartNodes = Cypher
+					.listWith(r)
+					.in(sR)
+					.where(Cypher.raw("startNode($E)", r).isNotEqualTo(rootNodes))
+					.returning(Cypher.raw("startNode($E)", r));
+			Expression relatedEndNodes = Cypher
+					.listWith(r)
+					.in(sR)
+					.where(Cypher.raw("endNode($E)", r).isNotEqualTo(rootNodes))
+					.returning(Cypher.raw("endNode($E)", r));
+			SymbolicName n = Cypher.name("n");
+			Expression relatedNodes = Cypher
+					.listWith(n)
+					.in(relatedStartNodes.add(relatedEndNodes))
+					.where(Cypher.raw("id($E)", n).in(Cypher.property(relatedThings, "n")))
+					.returning().as(Constants.NAME_OF_SYNTHESIZED_RELATED_NODES);
+
+			Expression renamedRootNode = rootNodes.as(Constants.NAME_OF_TYPED_ROOT_NODE.apply(nodeDescription).getValue())
+					.asExpression();
+
+			return Cypher.unwind(Functions.keys(Cypher.parameter("x"))).as("k")
+					.with(Cypher.raw("collect($x[k].r) AS r"), Cypher.raw("collect($x[k].n) AS n"))
 					.with(
-							Constants.NAME_OF_ROOT_NODE,
-							Cypher.name(Constants.NAME_OF_SYNTHESIZED_RELATIONS).as(Constants.NAME_OF_SYNTHESIZED_RELATIONS),
-							Functions.collectDistinct(relatedNodes).as(Constants.NAME_OF_SYNTHESIZED_RELATED_NODES).asExpression()
+							Cypher.raw("reduce(all=[], v in r | all + v) AS relationshipIds"),
+							Cypher.raw("reduce(all=[], v in n | all + v) AS relatedNodeIds")
 					)
-					.unwind(Constants.NAME_OF_ROOT_NODE).as(rootNodeIds)
+					.match(Cypher.anyNode(rootNodes))
+					.where(Functions.id(Cypher.anyNode(rootNodes)).in(Cypher.parameter("rootNodeIds")))
+					.optionalMatch(relationships)
+					.where(Functions.id(relationships).in(Cypher.name("relationshipIds")))
+					.with(rootNodes, relatedRelations)
 					.with(
-							Cypher.name(rootNodeIds).as(Constants.NAME_OF_TYPED_ROOT_NODE.apply(nodeDescription).getValue()).asExpression(),
-							Cypher.name(Constants.NAME_OF_SYNTHESIZED_RELATIONS),
-							Cypher.name(Constants.NAME_OF_SYNTHESIZED_RELATED_NODES))
+							renamedRootNode,
+							sR,
+							relatedNodes
+					).unwind(Cypher.name(Constants.NAME_OF_SYNTHESIZED_RELATED_NODES)).as("f")
+					.with(	renamedRootNode,
+							sR, Functions.collectDistinct(Cypher.name("f")).as(Constants.NAME_OF_SYNTHESIZED_RELATED_NODES))
 					.orderBy(queryFragments.getOrderBy())
 					.returning(
-							Constants.NAME_OF_TYPED_ROOT_NODE.apply(nodeDescription).as(Constants.NAME_OF_SYNTHESIZED_ROOT_NODE),
-							Cypher.name(Constants.NAME_OF_SYNTHESIZED_RELATIONS),
-							Cypher.name(Constants.NAME_OF_SYNTHESIZED_RELATED_NODES)
+							renamedRootNode,
+							sR,
+							relatedNodes
 					)
 					.skip(queryFragments.getSkip())
 					.limit(queryFragments.getLimit()).build();
