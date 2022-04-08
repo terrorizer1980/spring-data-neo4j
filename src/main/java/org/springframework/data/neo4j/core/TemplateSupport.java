@@ -202,6 +202,7 @@ public final class TemplateSupport {
 
 			SymbolicName r = Cypher.name("i");
 			SymbolicName sR = Cypher.name(Constants.NAME_OF_SYNTHESIZED_RELATIONS);
+			SymbolicName sRN = Cypher.name(Constants.NAME_OF_SYNTHESIZED_RELATED_NODES);
 
 			Property relatedThings = Cypher.property(Cypher.parameter("x"), Cypher.raw("'x' + toString(id($E))", rootNodes));
 			Expression relatedRelations = Cypher
@@ -223,19 +224,16 @@ public final class TemplateSupport {
 			SymbolicName n = Cypher.name("n");
 			Expression relatedNodes = Cypher
 					.listWith(n)
-					.in(relatedStartNodes.add(relatedEndNodes))
+					.in(relatedStartNodes.add(relatedEndNodes).add(Cypher.listOf(rootNodes)))
 					.where(Cypher.raw("id($E)", n).in(Cypher.property(relatedThings, "n")))
-					.returning().as(Constants.NAME_OF_SYNTHESIZED_RELATED_NODES);
+					.returning().as(sRN);
 
 			Expression renamedRootNode = rootNodes.as(Constants.NAME_OF_TYPED_ROOT_NODE.apply(nodeDescription).getValue())
 					.asExpression();
 
 			return Cypher.unwind(Functions.keys(Cypher.parameter("x"))).as("k")
-					.with(Cypher.raw("collect($x[k].r) AS r"), Cypher.raw("collect($x[k].n) AS n"))
-					.with(
-							Cypher.raw("reduce(all=[], v in r | all + v) AS relationshipIds"),
-							Cypher.raw("reduce(all=[], v in n | all + v) AS relatedNodeIds")
-					)
+					.with(Cypher.raw("collect($x[k].r) AS r"))
+					.with(Cypher.raw("reduce(all=[], v in r | all + v) AS relationshipIds"))
 					.match(Cypher.anyNode(rootNodes))
 					.where(Functions.id(Cypher.anyNode(rootNodes)).in(Cypher.parameter("rootNodeIds")))
 					.optionalMatch(relationships)
@@ -245,9 +243,15 @@ public final class TemplateSupport {
 							renamedRootNode,
 							sR,
 							relatedNodes
-					).unwind(Cypher.name(Constants.NAME_OF_SYNTHESIZED_RELATED_NODES)).as("f")
-					.with(	renamedRootNode,
-							sR, Functions.collectDistinct(Cypher.name("f")).as(Constants.NAME_OF_SYNTHESIZED_RELATED_NODES))
+					)
+					.with(
+							renamedRootNode,
+							sR,
+							Cypher.raw(
+									"REDUCE(distinctElements = [], element IN $E | CASE WHEN NOT element in distinctElements THEN distinctElements + element ELSE distinctElements END)",
+									sRN
+							).as(sRN)
+					)
 					.orderBy(queryFragments.getOrderBy())
 					.returning(
 							renamedRootNode,

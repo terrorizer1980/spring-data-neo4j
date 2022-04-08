@@ -1253,10 +1253,7 @@ public final class Neo4jTemplate implements
 					System.out.println("nex");
 					nodeIds.addAll(relatedNodeIds);
 					iterateNextLevel(f, newRoots, relationshipDescription, null, nodeIds, nextPathStep);
-				} else
-					System.out.println("out");
-
-				//		.forEach(iterateAndMapNextLevel(f, relationshipIds, relatedNodeIds, relationshipDescription, nextPathStep));
+				}
 			}
 		}
 	}
