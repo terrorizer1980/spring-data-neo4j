@@ -1172,7 +1172,7 @@ public final class Neo4jTemplate implements
 				System.out.println("----");
 				newRoots.removeIf(id -> f.containsKey("x" + Long.toString(id)));
 				if (!newRoots.isEmpty()) {
-					iterateNextLevel(f, newRoots, relationshipDescription, null, rootNodeIds,
+					iterateNextLevel(f, newRoots, relationshipDescription, null, new HashSet<>(rootNodeIds),
 							PropertyPathWalkStep.empty());
 				}
 			}
@@ -1180,9 +1180,9 @@ public final class Neo4jTemplate implements
 					queryFragments);
 		}
 
-		private void iterateNextLevel(Map<String, Map<String, Set<Long>>> f, Collection<Long> nodeIds,
+		private void iterateNextLevel(Map<String, Map<String, Set<Long>>> f, Set<Long> nodeIds,
 				RelationshipDescription sourceRelationshipDescription, Set<Long> relationshipIds,
-				Collection<Long> relatedNodeIds, PropertyPathWalkStep currentPathStep) {
+				Set<Long> relatedNodeIds, PropertyPathWalkStep currentPathStep) {
 
 			Neo4jPersistentEntity<?> target = (Neo4jPersistentEntity<?>) sourceRelationshipDescription.getTarget();
 			@SuppressWarnings("unchecked")
@@ -1247,10 +1247,9 @@ public final class Neo4jTemplate implements
 							newRoots.addAll(newRelatedNodeIds);
 						});
 
-				System.out.println("having new roots " + newRoots + ", " + cnt.get() + " vs " + nodeIds.size());
 				newRoots.removeIf(id -> f.containsKey("x" + Long.toString(id)));
 				if (!newRoots.isEmpty()) {
-					System.out.println("nex");
+
 					nodeIds.addAll(relatedNodeIds);
 					iterateNextLevel(f, newRoots, relationshipDescription, null, nodeIds, nextPathStep);
 				}
