@@ -1236,6 +1236,7 @@ public final class Neo4jTemplate implements
 							relatedThings.computeIfAbsent("r", k -> new HashSet<>()).addAll(newRelationshipIds);
 							relatedThings.computeIfAbsent("n", k -> new HashSet<>()).addAll(newRelatedNodeIds);
 
+							// Versuch vom root node den pfad bis hin zum related node / relationship aufrecht zu erhalten
 							for (long l : relatedNodeIds) {
 								relatedThings = f.computeIfAbsent(
 										"x" + Long.toString(l),
