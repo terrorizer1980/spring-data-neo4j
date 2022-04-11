@@ -176,7 +176,7 @@ public final class TemplateSupport {
 		NodesAndRelationshipsByIdStatementProvider(Map<String, Map<String, Set<Long>>> f, Collection<Long> rootNodeIds, Collection<Long> relationshipsIds, Collection<Long> relatedNodeIds, QueryFragments queryFragments) {
 
 			this.parameters.put(ROOT_NODE_IDS, rootNodeIds);
-			if(f!= null) {
+			if(f != null) {
 				this.parameters.put("x", f);
 			} else {
 				this.parameters.put(RELATIONSHIP_IDS, relationshipsIds);
@@ -190,8 +190,9 @@ public final class TemplateSupport {
 			return Collections.unmodifiableMap(parameters);
 		}
 
+		@SuppressWarnings("unchecked")
 		boolean hasRootNodeIds() {
-			return ((Collection<Long>)parameters.get(ROOT_NODE_IDS)).isEmpty();
+			return ((Collection<Long>) parameters.get(ROOT_NODE_IDS)).isEmpty();
 		}
 
 		Statement toStatement(NodeDescription<?> nodeDescription) {

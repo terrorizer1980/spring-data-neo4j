@@ -17,6 +17,7 @@ package org.springframework.data.neo4j.integration.issues.gh2289;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
@@ -122,7 +123,15 @@ class ReactiveGH2289IT {
 				.verifyComplete();
 	}
 
-	@RepeatedTest(5) // GH-2294
+	@Test
+	void asdf(@Autowired SkuRORepository repository, @Autowired BookmarkCapture bookmarkCapture) {
+		StepVerifier.create(repository.findOneByName("A").zipWith(repository.findOneByName("B")))
+				.expectNextCount(2)
+				.verifyComplete();
+	}
+
+	// @RepeatedTest(5) // GH-2294
+	@Test
 	void testNewRelationRo(@Autowired SkuRORepository skuRepo) {
 
 		AtomicLong bId = new AtomicLong();
