@@ -15,29 +15,6 @@
  */
 package org.springframework.data.neo4j.core;
 
-import static org.neo4j.cypherdsl.core.Cypher.anyNode;
-import static org.neo4j.cypherdsl.core.Cypher.asterisk;
-import static org.neo4j.cypherdsl.core.Cypher.parameter;
-
-import java.util.AbstractMap;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.BiFunction;
-import java.util.function.BiPredicate;
-import java.util.function.Function;
-import java.util.function.Supplier;
-import java.util.stream.Collectors;
-
 import org.apache.commons.logging.LogFactory;
 import org.apiguardian.api.API;
 import org.neo4j.cypherdsl.core.Condition;
@@ -51,6 +28,7 @@ import org.neo4j.driver.exceptions.NoSuchRecordException;
 import org.neo4j.driver.summary.ResultSummary;
 import org.neo4j.driver.types.Entity;
 import org.neo4j.driver.types.MapAccessor;
+import org.neo4j.driver.types.Relationship;
 import org.neo4j.driver.types.TypeSystem;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.BeanClassLoaderAware;
@@ -92,6 +70,28 @@ import org.springframework.data.projection.SpelAwareProxyProjectionFactory;
 import org.springframework.data.util.ClassTypeInformation;
 import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
+
+import java.util.AbstractMap;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.BiFunction;
+import java.util.function.BiPredicate;
+import java.util.function.Function;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
+
+import static org.neo4j.cypherdsl.core.Cypher.anyNode;
+import static org.neo4j.cypherdsl.core.Cypher.asterisk;
+import static org.neo4j.cypherdsl.core.Cypher.parameter;
 
 /**
  * @author Michael J. Simons
@@ -1128,7 +1128,10 @@ public final class Neo4jTemplate implements
 				return NodesAndRelationshipsByIdStatementProvider.EMPTY;
 			}
 
-			Map<String, Map<String, Set<Long>>> f = new HashMap<>();
+			Map<String, Set<RelationshipAndNodePair>> f = new HashMap<>();
+			for (Long rootNodeId : rootNodeIds) {
+				f.put("x" + Long.toString(rootNodeId), new HashSet<>());
+			}
 
 			// load first level relationships
 			final Set<Long> relationshipIds = new HashSet<>();
@@ -1145,44 +1148,41 @@ public final class Neo4jTemplate implements
 				usedParameters = new HashMap<>(parameters);
 				usedParameters.putAll(statement.getParameters());
 
-				Set<Long> newRoots = new HashSet<>();
-
 				neo4jClient.query(renderer.render(statement))
 						.bindAll(usedParameters)
 						.fetchAs(org.neo4j.driver.Record.class)
 						.mappedBy((t, r) -> r)
 						.all()
 						.forEach(record -> {
-							Map<String, Set<Long>> relatedThings = f.computeIfAbsent(
-									"x" + Long.toString(record.get(Constants.NAME_OF_SYNTHESIZED_ROOT_NODE).asLong()),
-									key -> new HashMap<>());
+							long rootNodeId = record.get(Constants.NAME_OF_SYNTHESIZED_ROOT_NODE).asLong();
+							Set<RelationshipAndNodePair> relatedThings = f.get("x" + Long.toString(rootNodeId));
 
-							List<Long> newRelationshipIds = record.get(Constants.NAME_OF_SYNTHESIZED_RELATIONS)
-									.asList(Value::asLong);
-							List<Long> newRelatedNodeIds = record.get(Constants.NAME_OF_SYNTHESIZED_RELATED_NODES)
-									.asList(Value::asLong);
+							List<Relationship> newRelationships = record.get(Constants.NAME_OF_SYNTHESIZED_RELATIONS)
+									.asList(Value::asRelationship);
 
-							relatedThings.computeIfAbsent("r", k -> new HashSet<>()).addAll(newRelationshipIds);
-							relatedThings.computeIfAbsent("n", k -> new HashSet<>()).addAll(newRelatedNodeIds);
+							List<RelationshipAndNodePair> relationships = newRelationships.stream()
+									.map(relationship ->
+											new RelationshipAndNodePair(relationship.id(), relationshipDescription.getDirection() == org.springframework.data.neo4j.core.schema.Relationship.Direction.OUTGOING ? relationship.endNodeId() : relationship.startNodeId())
+									).collect(Collectors.toList());
 
-							newRoots.addAll(newRelatedNodeIds);
+							relatedThings.addAll(relationships);
+
 						});
-				System.out.println("---");
-				System.out.println(f);
-				System.out.println("----");
-				newRoots.removeIf(id -> f.containsKey("x" + Long.toString(id)));
-				if (!newRoots.isEmpty()) {
-					iterateNextLevel(f, newRoots, relationshipDescription, null, new HashSet<>(rootNodeIds),
-							PropertyPathWalkStep.empty());
+
+				for (Long rootNodeId : rootNodeIds) {
+					Set<RelationshipAndNodePair> nextRelationships = f.get("x" + rootNodeId);
+					iterateNextLevel(rootNodeId, f, nextRelationships, new HashSet<>(), relationshipDescription, PropertyPathWalkStep.empty());
 				}
+
 			}
 			return new NodesAndRelationshipsByIdStatementProvider(f, rootNodeIds, relationshipIds, relatedNodeIds,
 					queryFragments);
 		}
 
-		private void iterateNextLevel(Map<String, Map<String, Set<Long>>> f, Set<Long> nodeIds,
-				RelationshipDescription sourceRelationshipDescription, Set<Long> relationshipIds,
-				Set<Long> relatedNodeIds, PropertyPathWalkStep currentPathStep) {
+		private void iterateNextLevel(Long rootNodeId, Map<String, Set<RelationshipAndNodePair>> f, Set<RelationshipAndNodePair> currentRelationships,
+				Set<RelationshipAndNodePair> processedRelationshipsAndNodePair,
+				RelationshipDescription sourceRelationshipDescription,
+				PropertyPathWalkStep currentPathStep) {
 
 			Neo4jPersistentEntity<?> target = (Neo4jPersistentEntity<?>) sourceRelationshipDescription.getTarget();
 			@SuppressWarnings("unchecked")
@@ -1206,7 +1206,9 @@ public final class Neo4jTemplate implements
 										.includeField(prepend);
 							}
 					);
-			System.out.println(relationships.size());
+
+			Set<Long> ids = currentRelationships.stream().map(relationship -> relationship.relatedNodeId).collect(Collectors.toSet());
+			processedRelationshipsAndNodePair.addAll(currentRelationships);
 			for (RelationshipDescription relationshipDescription : relationships) {
 
 				Node node = anyNode(Constants.NAME_OF_TYPED_ROOT_NODE.apply(target));
@@ -1216,45 +1218,57 @@ public final class Neo4jTemplate implements
 								Functions.id(node).in(Cypher.parameter(Constants.NAME_OF_IDS)))
 						.returning(cypherGenerator.createGenericReturnStatement()).build();
 
-				Set<Long> newRoots = new HashSet<>();
-				AtomicInteger cnt = new AtomicInteger(0);
 				neo4jClient.query(renderer.render(statement))
-						.bindAll(Collections.singletonMap(Constants.NAME_OF_IDS, nodeIds))
+						.bindAll(Collections.singletonMap(Constants.NAME_OF_IDS, ids))
 						.fetchAs(org.neo4j.driver.Record.class)
 						.mappedBy((t, r) -> r)
 						.all()
 						.forEach(record -> {
 
-							List<Long> newRelationshipIds = record.get(Constants.NAME_OF_SYNTHESIZED_RELATIONS)
-									.asList(Value::asLong);
-							List<Long> newRelatedNodeIds = record.get(Constants.NAME_OF_SYNTHESIZED_RELATED_NODES)
-									.asList(Value::asLong);
+							List<Relationship> newRelationships = record.get(Constants.NAME_OF_SYNTHESIZED_RELATIONS)
+									.asList(Value::asRelationship);
 
-							Map<String, Set<Long>> relatedThings = f.computeIfAbsent(
-									"x" + Long.toString(record.get(Constants.NAME_OF_SYNTHESIZED_ROOT_NODE).asLong()),
-									key -> new HashMap<>());
-							relatedThings.computeIfAbsent("r", k -> new HashSet<>()).addAll(newRelationshipIds);
-							relatedThings.computeIfAbsent("n", k -> new HashSet<>()).addAll(newRelatedNodeIds);
-
-							// Versuch vom root node den pfad bis hin zum related node / relationship aufrecht zu erhalten
-							for (long l : relatedNodeIds) {
-								relatedThings = f.computeIfAbsent(
-										"x" + Long.toString(l),
-										key -> new HashMap<>());
-								relatedThings.computeIfAbsent("r", k -> new HashSet<>()).addAll(newRelationshipIds);
-								relatedThings.computeIfAbsent("n", k -> new HashSet<>()).addAll(newRelatedNodeIds);
-							}
-
-							newRoots.addAll(newRelatedNodeIds);
+							Set<RelationshipAndNodePair> relatedThings = f.get("x" + rootNodeId);
+							relatedThings.addAll(newRelationships.stream()
+									.map(relationship ->
+											new RelationshipAndNodePair(relationship.id(), relationshipDescription.getDirection() == org.springframework.data.neo4j.core.schema.Relationship.Direction.OUTGOING ? relationship.endNodeId() : relationship.startNodeId())
+									).collect(Collectors.toSet()));
 						});
 
-				newRoots.removeIf(id -> f.containsKey("x" + Long.toString(id)));
-				if (!newRoots.isEmpty()) {
+				Set<RelationshipAndNodePair> nextRelationships = new HashSet<>(f.get("x" + rootNodeId));
+				nextRelationships.removeAll(processedRelationshipsAndNodePair);
 
-					nodeIds.addAll(relatedNodeIds);
-					iterateNextLevel(f, newRoots, relationshipDescription, null, nodeIds, nextPathStep);
+				if (!nextRelationships.isEmpty()) {
+					iterateNextLevel(rootNodeId, f, nextRelationships, processedRelationshipsAndNodePair, relationshipDescription, nextPathStep);
 				}
 			}
+		}
+	}
+
+	static class RelationshipAndNodePair {
+		public final Long relationshipId;
+		public final Long relatedNodeId;
+
+		private RelationshipAndNodePair(Long relationshipId, Long relatedNodeId) {
+			this.relationshipId = relationshipId;
+			this.relatedNodeId = relatedNodeId;
+		}
+
+		@Override
+		public boolean equals(Object o) {
+			if (this == o) {
+				return true;
+			}
+			if (o == null || getClass() != o.getClass()) {
+				return false;
+			}
+			RelationshipAndNodePair that = (RelationshipAndNodePair) o;
+			return relationshipId.equals(that.relationshipId) && relatedNodeId.equals(that.relatedNodeId);
+		}
+
+		@Override
+		public int hashCode() {
+			return Objects.hash(relationshipId, relatedNodeId);
 		}
 	}
 }

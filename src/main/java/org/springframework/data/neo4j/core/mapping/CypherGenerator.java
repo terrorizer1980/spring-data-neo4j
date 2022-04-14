@@ -171,7 +171,7 @@ public enum CypherGenerator {
 		List<Expression> expressions = new ArrayList<>();
 		expressions.add(Functions.id(rootNode).as(Constants.NAME_OF_SYNTHESIZED_ROOT_NODE));
 		expressions.add(Functions.collect(Functions.id(targetNode)).as(Constants.NAME_OF_SYNTHESIZED_RELATED_NODES));
-		expressions.add(Functions.collect(Functions.id(relationship)).as(Constants.NAME_OF_SYNTHESIZED_RELATIONS));
+		expressions.add(Functions.collect(relationship).as(Constants.NAME_OF_SYNTHESIZED_RELATIONS));
 
 		return match
 				.where(conditionOrNoCondition(condition))

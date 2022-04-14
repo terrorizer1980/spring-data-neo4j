@@ -173,11 +173,18 @@ public final class TemplateSupport {
 		private final Map<String, Object> parameters = new HashMap<>(3);
 		private final QueryFragments queryFragments;
 
-		NodesAndRelationshipsByIdStatementProvider(Map<String, Map<String, Set<Long>>> f, Collection<Long> rootNodeIds, Collection<Long> relationshipsIds, Collection<Long> relatedNodeIds, QueryFragments queryFragments) {
+		NodesAndRelationshipsByIdStatementProvider(Map<String, Set<Neo4jTemplate.RelationshipAndNodePair>> f, Collection<Long> rootNodeIds, Collection<Long> relationshipsIds, Collection<Long> relatedNodeIds, QueryFragments queryFragments) {
 
 			this.parameters.put(ROOT_NODE_IDS, rootNodeIds);
 			if(f != null) {
-				this.parameters.put("x", f);
+				Map<String, Map<String, Set<Long>>> bumms = new HashMap<>();
+				for (Map.Entry<String, Set<Neo4jTemplate.RelationshipAndNodePair>> stringSetEntry : f.entrySet()) {
+					bumms.put(stringSetEntry.getKey(), new HashMap<>());
+					bumms.get(stringSetEntry.getKey()).put("r", stringSetEntry.getValue().stream().map(r -> r.relationshipId).collect(Collectors.toSet()));
+					bumms.get(stringSetEntry.getKey()).put("n", stringSetEntry.getValue().stream().map(r -> r.relatedNodeId).collect(Collectors.toSet()));
+
+				}
+				this.parameters.put("x", bumms);
 			} else {
 				this.parameters.put(RELATIONSHIP_IDS, relationshipsIds);
 				this.parameters.put(RELATED_NODE_IDS, relatedNodeIds);

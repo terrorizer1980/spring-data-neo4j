@@ -37,4 +37,11 @@ class PropertyPathWalkStep {
 	private PropertyPathWalkStep(String path) {
 		this.path = path;
 	}
+
+	@Override
+	public String toString() {
+		return "PropertyPathWalkStep{" +
+				"path='" + path + '\'' +
+				'}';
+	}
 }

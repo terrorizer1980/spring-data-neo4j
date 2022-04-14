@@ -123,13 +123,6 @@ class ReactiveGH2289IT {
 				.verifyComplete();
 	}
 
-	@Test
-	void asdf(@Autowired SkuRORepository repository, @Autowired BookmarkCapture bookmarkCapture) {
-		StepVerifier.create(repository.findOneByName("A").zipWith(repository.findOneByName("B")))
-				.expectNextCount(2)
-				.verifyComplete();
-	}
-
 	// @RepeatedTest(5) // GH-2294
 	@Test
 	void testNewRelationRo(@Autowired SkuRORepository skuRepo) {

@@ -261,6 +261,14 @@ class AdvancedMappingIT {
 				.allMatch(person ->
 					!((MovieProjectionWithActorProjection.ActorProjection.PersonProjection) person).getActedIn().isEmpty());
 
+		for (MovieProjectionWithActorProjection.ActorProjection actor : projection.getActors()) {
+			for (Movie movie : actor.getPerson().getActedIn()) {
+				System.out.println(movie.getTitle());
+				System.out.println(movie.getReleased());
+				System.out.println(movie.getDirectors());
+			}
+		}
+
 		// n+1 level mapping of entity cycle
 		assertThat(projection.getActors()).extracting("person").flatExtracting("actedIn").extracting("directors")
 				.allMatch(directors -> !((Collection<?>) directors).isEmpty());

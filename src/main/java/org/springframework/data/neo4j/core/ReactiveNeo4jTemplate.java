@@ -27,6 +27,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.util.function.Tuple2;
 import reactor.util.function.Tuple3;
+import reactor.util.function.Tuple4;
 import reactor.util.function.Tuples;
 
 import java.util.ArrayList;
@@ -714,47 +715,49 @@ public final class ReactiveNeo4jTemplate implements
 										Collection<Long> newRelationshipIds = r.get(Constants.NAME_OF_SYNTHESIZED_RELATIONS).asList(Value::asLong);
 										Collection<Long> newRelatedNodeIds = r.get(Constants.NAME_OF_SYNTHESIZED_RELATED_NODES).asList(Value::asLong);
 
+										String key1 = "x" + Long.toString(r.get(Constants.NAME_OF_SYNTHESIZED_ROOT_NODE).asLong());
 										Map<String, Set<Long>> relatedThings = f.computeIfAbsent(
-												"x" + Long.toString(r.get(Constants.NAME_OF_SYNTHESIZED_ROOT_NODE).asLong()),
+												key1,
 												key -> new HashMap<>());
 										relatedThings.computeIfAbsent("r", k -> new HashSet<>()).addAll(newRelationshipIds);
 										relatedThings.computeIfAbsent("n", k -> new HashSet<>()).addAll(newRelatedNodeIds);
 
-										return TupleOfLongsHolder.with(Tuples.of(f, newRelationshipIds, newRelatedNodeIds));
+										return TupleOfLongsHolder.with(Tuples.of(key1, f, newRelationshipIds, newRelatedNodeIds));
 									})
 									.all()
 									.map(TupleOfLongsHolder::get)
 									.expand(iterateAndMapNextLevel(relationshipDescription, queryFragments, rootClass, PropertyPathWalkStep.empty()));
 						})
-						.then(Mono.fromSupplier(() -> new NodesAndRelationshipsByIdStatementProvider(f, rootNodeIds, processedRelationshipIds, processedNodeIds, queryFragments)));
+						.then(Mono.fromSupplier(() -> new NodesAndRelationshipsByIdStatementProvider(new HashMap<>(), rootNodeIds, processedRelationshipIds, processedNodeIds, queryFragments)));
 			})
-			.contextWrite(ctx -> ctx
+			.contextWrite(ctx -> {
+				return ctx
 					.put("rootNodes", ConcurrentHashMap.newKeySet())
 					.put("f", new ConcurrentHashMap<>())
 					.put("processedNodes", ConcurrentHashMap.newKeySet())
-					.put("processedRelationships", ConcurrentHashMap.newKeySet()));
+					.put("processedRelationships", ConcurrentHashMap.newKeySet());});
 
 	}
 
 	static class TupleOfLongsHolder {
-		private final Tuple3<Map<String, Map<String, Set<Long>>>, Collection<Long>, Collection<Long>> content;
+		private final Tuple4<String, Map<String, Map<String, Set<Long>>>, Collection<Long>, Collection<Long>> content;
 
-		static TupleOfLongsHolder with(Tuple3<Map<String, Map<String, Set<Long>>>, Collection<Long>, Collection<Long>> content) {
+		static TupleOfLongsHolder with(Tuple4<String, Map<String, Map<String, Set<Long>>>, Collection<Long>, Collection<Long>> content) {
 			return new TupleOfLongsHolder(content);
 		}
 
-		private TupleOfLongsHolder(Tuple3<Map<String, Map<String, Set<Long>>>, Collection<Long>, Collection<Long>> content) {
+		private TupleOfLongsHolder(Tuple4<String, Map<String, Map<String, Set<Long>>>, Collection<Long>, Collection<Long>> content) {
 			this.content = content;
 		}
 
-		Tuple3<Map<String, Map<String, Set<Long>>>, Collection<Long>, Collection<Long>> get() {
+		Tuple4<String, Map<String, Map<String, Set<Long>>>, Collection<Long>, Collection<Long>> get() {
 			return content;
 		}
 	}
 
-	private Flux<Tuple3<Map<String, Map<String, Set<Long>>>, Collection<Long>, Collection<Long>>> iterateNextLevel(Map<String, Map<String, Set<Long>>> f, Collection<Long> relatedNodeIds,
-			  RelationshipDescription sourceRelationshipDescription, QueryFragments queryFragments,
-			  Class<?> rootClass, PropertyPathWalkStep currentPathStep) {
+	private Flux<Tuple4<String, Map<String, Map<String, Set<Long>>>, Collection<Long>, Collection<Long>>> iterateNextLevel(String t1, Collection<Long> relatedNodeIds,
+																														   RelationshipDescription sourceRelationshipDescription, QueryFragments queryFragments,
+																														   Class<?> rootClass, PropertyPathWalkStep currentPathStep) {
 
 		NodeDescription<?> target = sourceRelationshipDescription.getTarget();
 
@@ -765,60 +768,63 @@ public final class ReactiveNeo4jTemplate implements
 				fieldName + "." + ((Neo4jPersistentEntity<?>) sourceRelationshipDescription.getRelationshipPropertiesEntity())
 						.getPersistentProperty(TargetNode.class).getFieldName() : fieldName));
 
-		return Flux.fromIterable(target
-				.getRelationshipsInHierarchy(
-						relaxedPropertyPath -> {
-							PropertyFilter.RelaxedPropertyPath prepend = relaxedPropertyPath.prepend(nextPathStep.path);
-							prepend = PropertyFilter.RelaxedPropertyPath.withRootType(rootClass).append(prepend.toDotPath());
-							return queryFragments.includeField(prepend);
-						}
-				))
-			.flatMap(relDe -> {
-				Node node = anyNode(Constants.NAME_OF_TYPED_ROOT_NODE.apply(target));
+		return Flux.deferContextual(ctx -> {
+			Map<String, Map<String, Set<Long>>> f = ctx.get("f");
+			return Flux.fromIterable(target
+							.getRelationshipsInHierarchy(
+									relaxedPropertyPath -> {
+										PropertyFilter.RelaxedPropertyPath prepend = relaxedPropertyPath.prepend(nextPathStep.path);
+										prepend = PropertyFilter.RelaxedPropertyPath.withRootType(rootClass).append(prepend.toDotPath());
+										return queryFragments.includeField(prepend);
+									}
+							))
+					.flatMap(relDe -> {
+						Node node = anyNode(Constants.NAME_OF_TYPED_ROOT_NODE.apply(target));
 
-				Statement statement = cypherGenerator
-						.prepareMatchOf(target, relDe, null,
-								Functions.id(node).in(Cypher.parameter(Constants.NAME_OF_ID)))
-						.returning(cypherGenerator.createGenericReturnStatement()).build();
+						Statement statement = cypherGenerator
+								.prepareMatchOf(target, relDe, null,
+										Functions.id(node).in(Cypher.parameter(Constants.NAME_OF_ID)))
+								.returning(cypherGenerator.createGenericReturnStatement()).build();
 
-				return neo4jClient.query(renderer.render(statement))
-						.bindAll(Collections.singletonMap(Constants.NAME_OF_ID, relatedNodeIds))
-						.fetchAs(TupleOfLongsHolder.class)
-						.mappedBy((t, r) -> {
-							Collection<Long> newRelationshipIds = r.get(Constants.NAME_OF_SYNTHESIZED_RELATIONS).asList(Value::asLong);
-							Collection<Long> newRelatedNodeIds = r.get(Constants.NAME_OF_SYNTHESIZED_RELATED_NODES).asList(Value::asLong);
+						return neo4jClient.query(renderer.render(statement))
+								.bindAll(Collections.singletonMap(Constants.NAME_OF_ID, relatedNodeIds))
+								.fetchAs(TupleOfLongsHolder.class)
+								.mappedBy((t, r) -> {
+									Collection<Long> newRelationshipIds = r.get(Constants.NAME_OF_SYNTHESIZED_RELATIONS).asList(Value::asLong);
+									Collection<Long> newRelatedNodeIds = r.get(Constants.NAME_OF_SYNTHESIZED_RELATED_NODES).asList(Value::asLong);
 
-//							Map<String, Set<Long>> relatedThings = f.get("x" + Long.toString(r.get(Constants.NAME_OF_SYNTHESIZED_ROOT_NODE).asLong()));
-//							relatedThings.computeIfAbsent("r", k -> new HashSet<>()).addAll(newRelationshipIds);
-//							relatedThings.computeIfAbsent("n", k -> new HashSet<>()).addAll(newRelatedNodeIds);
+									String key = t1;
+									Map<String, Set<Long>> relatedThings = f.get(key);
+									relatedThings.computeIfAbsent("r", k -> new HashSet<>()).addAll(newRelationshipIds);
+									relatedThings.computeIfAbsent("n", k -> new HashSet<>()).addAll(newRelatedNodeIds);
 
-							return TupleOfLongsHolder.with(Tuples.of(f, newRelationshipIds, newRelatedNodeIds));
-						})
-						.one()
-						.map(TupleOfLongsHolder::get)
-						.expand(object -> iterateAndMapNextLevel(relDe, queryFragments, rootClass, nextPathStep).apply(object));
-			});
+									return TupleOfLongsHolder.with(Tuples.of(key, f, newRelationshipIds, newRelatedNodeIds));
+								})
+								.all()
+								.map(TupleOfLongsHolder::get)
+								.expand(object -> iterateAndMapNextLevel(relDe, queryFragments, rootClass, nextPathStep).apply(object));
+					});
+		});
 
 	}
 
 	@NonNull
-	private Function<Tuple3<Map<String, Map<String, Set<Long>>>, Collection<Long>, Collection<Long>>,
-			Publisher<Tuple3<Map<String, Map<String, Set<Long>>>, Collection<Long>, Collection<Long>>>> iterateAndMapNextLevel(
+	private Function<Tuple4<String, Map<String, Map<String, Set<Long>>>, Collection<Long>, Collection<Long>>,
+			Publisher<Tuple4<String, Map<String, Map<String, Set<Long>>>, Collection<Long>, Collection<Long>>>> iterateAndMapNextLevel(
 			RelationshipDescription relationshipDescription, QueryFragments queryFragments, Class<?> rootClass, PropertyPathWalkStep currentPathStep) {
 
 		return newRelationshipAndRelatedNodeIds ->
 			Flux.deferContextual(ctx -> {
 				Set<Long> relationshipIds = ctx.get("processedRelationships");
 				Set<Long> processedNodeIds = ctx.get("processedNodes");
-				Map<String, Map<String, Set<Long>>> f = ctx.get("f");
 
-				Collection<Long> newRelationshipIds = newRelationshipAndRelatedNodeIds.getT2();
+				Collection<Long> newRelationshipIds = newRelationshipAndRelatedNodeIds.getT3();
 				Set<Long> tmpProcessedRels = ConcurrentHashMap.newKeySet(newRelationshipIds.size());
 				tmpProcessedRels.addAll(newRelationshipIds);
 				tmpProcessedRels.removeAll(relationshipIds);
 				relationshipIds.addAll(newRelationshipIds);
 
-				Collection<Long> newRelatedNodeIds = newRelationshipAndRelatedNodeIds.getT3();
+				Collection<Long> newRelatedNodeIds = newRelationshipAndRelatedNodeIds.getT4();
 				Set<Long> tmpProcessedNodes = ConcurrentHashMap.newKeySet(newRelatedNodeIds.size());
 				tmpProcessedNodes.addAll(newRelatedNodeIds);
 				tmpProcessedNodes.removeAll(processedNodeIds);
@@ -828,7 +834,7 @@ public final class ReactiveNeo4jTemplate implements
 					return Mono.empty();
 				}
 
-				return iterateNextLevel(f, newRelatedNodeIds, relationshipDescription, queryFragments, rootClass, currentPathStep);
+				return iterateNextLevel(newRelationshipAndRelatedNodeIds.getT1(), newRelatedNodeIds, relationshipDescription, queryFragments, rootClass, currentPathStep);
 			});
 	}
 
