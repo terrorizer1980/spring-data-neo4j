@@ -1249,7 +1249,7 @@ public final class Neo4jTemplate implements
 		public final Long relationshipId;
 		public final Long relatedNodeId;
 
-		private RelationshipAndNodePair(Long relationshipId, Long relatedNodeId) {
+		RelationshipAndNodePair(Long relationshipId, Long relatedNodeId) {
 			this.relationshipId = relationshipId;
 			this.relatedNodeId = relatedNodeId;
 		}
