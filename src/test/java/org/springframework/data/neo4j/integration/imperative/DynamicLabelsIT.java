@@ -16,9 +16,7 @@
 package org.springframework.data.neo4j.integration.imperative;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.neo4j.cypherdsl.core.Conditions.not;
 import static org.neo4j.cypherdsl.core.Cypher.parameter;
-import static org.neo4j.cypherdsl.core.Predicates.exists;
 
 import java.util.Collections;
 import java.util.HashSet;
@@ -477,7 +475,7 @@ public class DynamicLabelsIT {
 
 			Node n = Cypher.anyNode("n");
 			String cypher = Renderer.getDefaultRenderer().render(Cypher.match(n).where(idCondition)
-					.and(not(exists(n.property("moreLabels")))).returning(n.labels().as("labels")).build());
+					.and(n.property("moreLabels").isNull()).returning(n.labels().as("labels")).build());
 
 			try (Session session = driver.session(bookmarkCapture.createSessionConfig())) {
 				return session.readTransaction(

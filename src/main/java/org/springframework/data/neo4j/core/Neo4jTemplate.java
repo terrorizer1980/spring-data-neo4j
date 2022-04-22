@@ -45,6 +45,8 @@ import org.neo4j.cypherdsl.core.Cypher;
 import org.neo4j.cypherdsl.core.Functions;
 import org.neo4j.cypherdsl.core.Node;
 import org.neo4j.cypherdsl.core.Statement;
+import org.neo4j.cypherdsl.core.renderer.Configuration;
+import org.neo4j.cypherdsl.core.renderer.Dialect;
 import org.neo4j.cypherdsl.core.renderer.Renderer;
 import org.neo4j.driver.Value;
 import org.neo4j.driver.exceptions.NoSuchRecordException;
@@ -110,7 +112,7 @@ public final class Neo4jTemplate implements
 
 	private static final String OPTIMISTIC_LOCKING_ERROR_MESSAGE = "An entity with the required version does not exist.";
 
-	private static final Renderer renderer = Renderer.getDefaultRenderer();
+	private static final Renderer renderer = Renderer.getRenderer(Configuration.newConfig().withDialect(Dialect.NEO4J_5).build());
 
 	private final Neo4jClient neo4jClient;
 

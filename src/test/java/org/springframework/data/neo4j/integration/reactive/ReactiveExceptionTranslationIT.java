@@ -69,7 +69,7 @@ class ReactiveExceptionTranslationIT {
 
 	@BeforeAll
 	static void createConstraints(@Autowired Driver driver) {
-
+		assumeNeo4jLowerThan44();
 		Flux.using(driver::rxSession,
 				session -> session.run("CREATE CONSTRAINT ON (person:SimplePerson) ASSERT person.name IS UNIQUE").consume(),
 				RxSession::close).then().as(StepVerifier::create).verifyComplete();
@@ -77,7 +77,7 @@ class ReactiveExceptionTranslationIT {
 
 	@AfterAll
 	static void dropConstraints(@Autowired Driver driver) {
-
+		assumeNeo4jLowerThan44();
 		Flux.using(driver::rxSession,
 				session -> session.run("DROP CONSTRAINT ON (person:SimplePerson) ASSERT person.name IS UNIQUE").consume(),
 				RxSession::close).then().as(StepVerifier::create).verifyComplete();
@@ -90,8 +90,7 @@ class ReactiveExceptionTranslationIT {
 				.then().as(StepVerifier::create).verifyComplete();
 	}
 
-	@BeforeEach
-	void assumeNeo4jLowerThan44() {
+	private static void assumeNeo4jLowerThan44() {
 
 		assumeThat(neo4jConnectionSupport.getServerVersion()
 				.lessThan(ServerVersion.version("Neo4j/4.4.0"))).isTrue();

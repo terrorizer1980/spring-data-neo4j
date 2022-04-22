@@ -16,8 +16,6 @@
 package org.springframework.data.neo4j.integration.reactive;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.neo4j.cypherdsl.core.Conditions.not;
-import static org.neo4j.cypherdsl.core.Predicates.exists;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -448,7 +446,7 @@ public class ReactiveDynamicLabelsIT {
 
 			Node n = Cypher.anyNode("n");
 			String cypher = Renderer.getDefaultRenderer().render(Cypher.match(n).where(idCondition)
-					.and(not(exists(n.property("moreLabels")))).unwind(n.labels()).as("label").returning("label").build());
+					.and(n.property("moreLabels").isNull()).unwind(n.labels()).as("label").returning("label").build());
 			return Flux
 					.usingWhen(Mono.fromSupplier(() -> driver.rxSession(bookmarkCapture.createSessionConfig())),
 							s -> s.run(cypher, Collections.singletonMap("id", id)).records(), RxSession::close)

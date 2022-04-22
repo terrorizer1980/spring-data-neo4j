@@ -52,6 +52,8 @@ import org.neo4j.cypherdsl.core.StatementBuilder;
 import org.neo4j.cypherdsl.core.StatementBuilder.OngoingMatchAndUpdate;
 import org.neo4j.cypherdsl.core.StatementBuilder.OngoingUpdate;
 import org.neo4j.cypherdsl.core.SymbolicName;
+import org.neo4j.cypherdsl.core.renderer.Configuration;
+import org.neo4j.cypherdsl.core.renderer.Dialect;
 import org.neo4j.cypherdsl.core.renderer.Renderer;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mapping.MappingException;
@@ -503,7 +505,8 @@ public enum CypherGenerator {
 					return order.isAscending() ? expression.ascending() : expression.descending();
 				}).toArray(SortItem[]::new))
 				.build();
-		String renderedStatement = Renderer.getDefaultRenderer().render(statement);
+		// todo push the config here
+		String renderedStatement = Renderer.getRenderer(Configuration.newConfig().withDialect(Dialect.NEO4J_5).build()).render(statement);
 		return renderedStatement.substring(renderedStatement.indexOf("ORDER BY")).trim();
 	}
 

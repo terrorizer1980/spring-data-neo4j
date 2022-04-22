@@ -61,7 +61,7 @@ class ExceptionTranslationIT {
 
 	@BeforeAll
 	static void createConstraints(@Autowired Driver driver) {
-
+		assumeNeo4jLowerThan44();
 		try (Session session = driver.session()) {
 			session.run("CREATE CONSTRAINT ON (person:SimplePerson) ASSERT person.name IS UNIQUE").consume();
 		}
@@ -69,7 +69,7 @@ class ExceptionTranslationIT {
 
 	@AfterAll
 	static void dropConstraints(@Autowired Driver driver) {
-
+		assumeNeo4jLowerThan44();
 		try (Session session = driver.session()) {
 			session.run("DROP CONSTRAINT ON (person:SimplePerson) ASSERT person.name IS UNIQUE").consume();
 		}
@@ -82,8 +82,7 @@ class ExceptionTranslationIT {
 		}
 	}
 
-	@BeforeEach
-	void assumeNeo4jLowerThan44() {
+	private static void assumeNeo4jLowerThan44() {
 
 		assumeThat(neo4jConnectionSupport.getServerVersion()
 				.lessThan(ServerVersion.version("Neo4j/4.4.0"))).isTrue();
