@@ -136,6 +136,7 @@ import org.springframework.data.neo4j.integration.shared.common.PersonWithRelati
 import org.springframework.data.neo4j.integration.shared.common.PersonWithRelationshipWithProperties2;
 import org.springframework.data.neo4j.integration.shared.common.PersonWithWither;
 import org.springframework.data.neo4j.integration.shared.common.Pet;
+import org.springframework.data.neo4j.integration.shared.common.Post;
 import org.springframework.data.neo4j.integration.shared.common.SameIdProperty;
 import org.springframework.data.neo4j.integration.shared.common.SimilarThing;
 import org.springframework.data.neo4j.integration.shared.common.SimpleEntityWithRelationshipA;
@@ -1354,6 +1355,31 @@ class RepositoryIT {
 
 			List<OneToOneSource.OneToOneSourceProjection> oneToOnes = repository.findAllWithNullValues();
 			assertOneToOneScenarioWithNulls(oneToOnes);
+		}
+
+		@Test // GH-2521
+		void shouldWorkCorrectWithPagination(@Autowired Driver driver, @Autowired PostRepository repository) {
+			try (Session session = driver.session()) {
+				session.run("MATCH (n) detach delete n");
+				session.run("" +
+						"CREATE (p1:Post) " +
+						"CREATE (p2:Post) " +
+						"CREATE (p3:Post) " +
+						"CREATE (p4:Post) " +
+						"CREATE (u:BlogUser{id:'hans'}) " +
+						"MERGE (u)-[:FAVORITE{createdAt: 1}]->(p1) " +
+						"MERGE (u)-[:FAVORITE{createdAt: 2}]->(p2) " +
+						"MERGE (u)-[:FAVORITE{createdAt: 3}]->(p3) " +
+						"MERGE (u)-[:FAVORITE{createdAt: 4}]->(p4) " +
+						"");
+			}
+
+			Page<Post> posts = repository.findByUserId("hans", PageRequest.of(0, 2));
+			System.out.println(posts.getTotalPages());
+			System.out.println(posts.getTotalElements());
+			posts = repository.findByUserId("hans", PageRequest.of(1, 2));
+			System.out.println(posts.getTotalPages());
+			System.out.println(posts.getTotalElements());
 		}
 	}
 
@@ -4225,6 +4251,14 @@ class RepositoryIT {
 				assertThat(ep.getPeople()).extracting(PersonWithAllConstructor::getName).containsExactly("Bazbar");
 			});
 		}
+	}
+
+	interface PostRepository extends Neo4jRepository<Post, Long> {
+		@Query(
+				value = "MATCH (user:`BlogUser` {id: $userId})-[relationship:`FAVORITE`]-(post:`Post`) RETURN post " +
+						"ORDER BY relationship.createdAt DESC SKIP $skip LIMIT $limit",
+				countQuery = "MATCH (user:`BlogUser` {id: $userId})-[relationship:`FAVORITE`]-(post:`Post`) RETURN count(post)")
+		Page<Post> findByUserId(String userId, Pageable pageable);
 	}
 
 	interface BidirectionalExternallyGeneratedIdRepository
